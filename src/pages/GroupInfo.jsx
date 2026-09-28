@@ -332,54 +332,41 @@ function GroupInfo() {
                         <Row className="justify-content-center">
                             <Col xs={10} md={6}>
                                 <Button
-                                    className="mb-2 me-md-2 w-100"
+                                    className="mb-2 w-100"
                                     onClick={() =>
                                     navigate(`/group/${group.id}/stats`)
                                     }
                                 >
                                     Group Leaderboards
                                 </Button>
-                                <Col>
-                                    {userId === captainid && 
-                                        <Button className="mb-2 me-md-2 w-100" onClick={() => setShowMemberForm(true)}>
-                                            Add Group Members
-                                        </Button>
-                                    }
-                                </Col>
                             </Col>
-                            {userId === captainid ? (
-                            <>
-                                <Col xs={10} md={6}>
-                                <Button className="btn btn-warning w-100 mb-2 me-md-2" onClick={handleShowModal}>
+                        </Row>
+                        {userId === captainid && (
+                        <Row className="justify-content-center">
+                            <Col xs={10} md={6}>
+                                <Button className="mb-2 w-100" onClick={() => setShowMemberForm(true)}>
+                                    Add Group Members
+                                </Button>
+                            </Col>
+                        </Row>
+                        )}
+                        {userId === captainid ? (
+                        <Row className="justify-content-center">
+                            <Col xs={10} md={6}>
+                                <Button className="btn btn-warning w-100 mb-2" onClick={handleShowModal}>
                                     Edit Group Name
                                 </Button>
-                                <Button variant="danger" className="w-100" onClick={() => {setShowDeleteConfirm(true);}} disabled={loading}>
-                                    {deleteloading? (
-                                        <>
-                                        <Spinner
-                                            as="span"
-                                            animation="border"
-                                            size="sm"
-                                            role="status"
-                                            aria-hidden="true"
-                                        />{' '}
-                                        Deleting...
-                                        </>
-                                    ) : (
-                                        'Delete Group'
-                                    )}
-                                    </Button>
-                                </Col>
-                            </>
-                            ) : (
+                            </Col>
+                        </Row>
+                        ) : (
+                        <Row className="justify-content-center">
                             <Col xs={10} md={6}>
                                 <Button className="btn-danger w-100" onClick={() => {setShowExitConfirm(true);}}>
                                 Exit Group
                                 </Button>
                             </Col>
-                            )}
-
                         </Row>
+                        )}
                         {invites.length > 0 && userId === captainid && (
                         <Row className="my-4">
                             <Col>
@@ -427,6 +414,29 @@ function GroupInfo() {
                                 </Col>
                             </Row>
                             ))}
+                            </Col>
+                        </Row>
+                        )}
+
+                        {userId === captainid && (
+                        <Row className="justify-content-center">
+                            <Col xs={10} md={6}>
+                                <Button variant="danger" className="w-100" onClick={() => {setShowDeleteConfirm(true);}} disabled={loading}>
+                                    {deleteloading? (
+                                        <>
+                                        <Spinner
+                                            as="span"
+                                            animation="border"
+                                            size="sm"
+                                            role="status"
+                                            aria-hidden="true"
+                                        />{' '}
+                                        Deleting...
+                                        </>
+                                    ) : (
+                                        'Delete Group'
+                                    )}
+                                </Button>
                             </Col>
                         </Row>
                         )}
