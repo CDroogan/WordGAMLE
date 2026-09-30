@@ -66,6 +66,7 @@ function AdminText() {
     text5: '',
     gameintro: '',
     rules_text: '',
+    tips_text: '',
     firstname_label: '',
     firstname_desc: '',
     firstname_placeholder: '',
@@ -128,6 +129,7 @@ function AdminText() {
             text5: res.data.text5,
             gameintro: res.data.gameintro ?? '',
             rules_text: res.data.rules_text || DEFAULT_RULES_HTML,
+            tips_text: res.data.tips_text || '',
             firstname_label: res.data.firstname_label || '',
             firstname_desc: res.data.firstname_desc || '',
             firstname_placeholder: res.data.firstname_placeholder || '',
@@ -182,7 +184,7 @@ function AdminText() {
     toast.success(response.data.message);
     setRecordExists(true); // now a record definitely exists
   } catch (error) {
-    toast.error('Failed to save data.');
+    toast.error(error.response?.data?.message || 'Failed to save data.');
   }
 };
 
@@ -330,6 +332,17 @@ return (
                   theme="snow"
                   value={formData.rules_text}
                   onChange={(content) => setFormData(prev => ({ ...prev, rules_text: content }))}
+                  modules={quillModules}
+                />
+              </Form.Group>
+            </Tab>
+            <Tab eventKey="tips" title="Tips & Tricks">
+              <Form.Group className="mb-3" controlId="tips_text">
+                <Form.Label>Tips & Tricks</Form.Label>
+                <ReactQuill
+                  theme="snow"
+                  value={formData.tips_text}
+                  onChange={(content) => setFormData(prev => ({ ...prev, tips_text: content }))}
                   modules={quillModules}
                 />
               </Form.Group>

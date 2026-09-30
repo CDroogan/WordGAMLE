@@ -214,6 +214,12 @@ function GroupScoreByDate({ latestJoinDate, setSelectedMember, setShowProfile, m
             setStartDate(date);
             fetchDataByDate(formattedDateStr);
         }
+
+        // Going to a date should move the Weekly/Monthly/Yearly Leaderboards
+        // to the period containing it too, not just the Daily one.
+        fetchWeeklyData(formattedDateStr);
+        fetchMonthlyData(formattedDateStr);
+        fetchYearlyData(dayjs(date).year());
     };
 
 
@@ -643,12 +649,20 @@ useEffect(() => {
                     maxDate={new Date()}
                 /> */}
                 <DatePicker
-                   
+                    selected={startDate}
                     onChange={handleDateChange}
                     customInput={<ExampleCustomInput />}
                     minDate={minDate}
                     maxDate={game === 'phrazle' ? maxSelectableDate : dayjs().subtract(1, 'day').toDate()}
                     />
+                {!dayjs(startDate).isSame(dayjs(), 'month') && (
+                    <Button
+                        className={`px-5 my-4 ms-2 ${game}-btn`}
+                        onClick={() => handleDateChange(game === 'phrazle' ? maxSelectableDate : dayjs().subtract(1, 'day').toDate())}
+                    >
+                        Back To Today
+                    </Button>
+                )}
             </div>
             <Row
                 className="justify-content-center leaderboard"
@@ -1214,7 +1228,7 @@ useEffect(() => {
                             <FaArrowLeft />
                         </button>
                         <div>
-                            {monthlyData?.monthOf ? `Month of ${dayjs(monthlyData.monthOf).format("MMMM YYYY")}` : "Month of —"}
+                            {monthlyData?.monthOf ? dayjs(monthlyData.monthOf).format("MMMM YYYY") : "—"}
                         </div>
                         <button
                             onClick={goToNextMonth}
@@ -1318,7 +1332,29 @@ useEffect(() => {
                         >
                             <FaArrowLeft />
                         </button>
-                        <div>{yearlyData?.year ?? "—"}</div>
+                        <div className="text-center">
+                            {(() => {
+                                if (!yearlyData) return "—";
+                                const isYTD = yearlyData.label?.includes("Year To Date");
+                                const isCurrentYear = yearlyData.year === dayjs().year();
+                                if (isYTD && isCurrentYear) {
+                                    return `${yearlyData.year} YTD`;
+                                }
+                                if (isYTD && !isCurrentYear) {
+                                    // The site's first, partial year - show the
+                                    // year plus the actual date range it covers.
+                                    return (
+                                        <>
+                                            <div>{yearlyData.year}</div>
+                                            <div style={{ fontSize: '0.65rem', lineHeight: 1 }}>
+                                                {dayjs(yearlyData.periodStart).format("M/D/YY")} – {dayjs(yearlyData.periodEnd).format("M/D/YY")}
+                                            </div>
+                                        </>
+                                    );
+                                }
+                                return yearlyData.year;
+                            })()}
+                        </div>
                         <button
                             onClick={goToNextYear}
                             disabled={!yearlyData?.canGoForward}
@@ -1328,7 +1364,7 @@ useEffect(() => {
                         </button>
                     </div>
                     <h4 className="py-3 text-center">
-                        {yearlyData?.label ? `${yearlyData.label} Leaderboard` : "Yearly Leaderboard"}
+                        Yearly Leaderboard
                     </h4>
 
                     {!yearlyData ? null : (() => {
