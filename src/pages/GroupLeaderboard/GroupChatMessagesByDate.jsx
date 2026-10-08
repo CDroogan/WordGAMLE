@@ -5,15 +5,55 @@ import timezone from "dayjs/plugin/timezone";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-import EmojiPicker from "emoji-picker-react";
 import axios from "axios";
+import { Button } from "react-bootstrap";
+import { toast } from "react-toastify";
 import MemberProfile from "../../constant/Models/MemberProfile";
+import ReactionBar from "../../components/ReactionBar";
+import MentionTextarea from "../../components/MentionTextarea";
+import { renderWithMentions } from "../../utils/mentions";
 
-function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highlightMsgId, generalChat }) {
-  const [showPickerFor, setShowPickerFor] = useState(null);
-  const [msgReactions, setMsgReactions] = useState({});
+function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highlightMsgId, generalChat, onMessagesChanged }) {
   const [selectedMember, setSelectedMember] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const [editText, setEditText] = useState("");
+
+  const startEdit = (msg) => {
+    setEditingMsgId(msg.id);
+    setEditText(msg.message || "");
+  };
+
+  const cancelEdit = () => {
+    setEditingMsgId(null);
+    setEditText("");
+  };
+
+  const handleSaveEdit = async (msgId) => {
+    const text = editText.trim();
+    if (!text) return;
+    try {
+      const res = await axios.post(`${baseURL}/groups/edit-message.php`, {
+        message_id: msgId,
+        user_id: userId,
+        message: text,
+        general_chat: generalChat,
+        // Per-game chat's created_at is the sender's own local wall-clock
+        // time, not UTC - edited_at follows the same convention (general
+        // chat ignores this and always stamps its own UTC instant server-side).
+        edited_at: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+      });
+      if (res.data.success) {
+        setEditingMsgId(null);
+        setEditText("");
+        if (onMessagesChanged) onMessagesChanged();
+      } else {
+        toast.error(res.data.error || "Could not save that edit.");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to save your edit - please try again.");
+    }
+  };
 
   const handleShowProfile = (msg) => {
     setSelectedMember({
@@ -23,6 +63,20 @@ function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highligh
       last_name: msg.last_name,
     });
     setShowProfile(true);
+  };
+
+  const handleMentionClick = async (mentionedUsername) => {
+    try {
+      const res = await axios.get(`${baseURL}/user/get-user-by-username.php`, { params: { username: mentionedUsername } });
+      if (res.data.success) {
+        setSelectedMember(res.data.user);
+        setShowProfile(true);
+      } else {
+        toast.error(res.data.error || "Gamler not found.");
+      }
+    } catch (err) {
+      toast.error("Could not load that profile.");
+    }
   };
 
   // Highlight specific message by ID
@@ -80,7 +134,9 @@ function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highligh
     return date.format("MMM D, YYYY");
   };
 
-  // ✅ Handle emoji reaction
+  // ✅ Handle emoji reaction - each Gamler's own reaction is tracked
+  // separately server-side, so after it saves we just refetch to pick up
+  // everyone's current reactions (including this one).
   const handleEmojiSelect = async (emojiData, messageId) => {
     try {
       const response = await axios.post(`${baseURL}/groups/react-message.php`, {
@@ -89,28 +145,16 @@ function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highligh
         emoji: emojiData.emoji,
         generalChat
       });
-      setMsgReactions(prev => ({
-        ...prev,
-        [messageId]: emojiData.emoji
-      }));
-      
 
-      // 👇 Optionally show popup or inline confirmation
       if (response.data.success) {
-        //alert(`Reaction ${response.data.action}: ${emojiData.emoji}`);
+        if (onMessagesChanged) onMessagesChanged();
       } else {
         alert("Something went wrong while reacting!");
       }
-      setShowPickerFor(null);
-
-      // 🔄 Optional: refresh messages to show updated counts
-      // fetchMessages();
     } catch (error) {
       alert("Failed to send reaction. Please try again.");
     }
   };
-
-  
 
   return (
     <>
@@ -151,33 +195,29 @@ function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highligh
                 id={`msg-${msg.id}`} // for highlight
                 className="d-flex flex-column mb-3 align-items-start"
               >
-                {/* Username */}
+                {/* Avatar + Username on one row, same layout as the GameFeed */}
                 <div
-                  className="small fw-bold mb-1 ms-1 text-primary"
-                  onClick={() => handleShowProfile(msg)}
+                  className="d-flex align-items-center mb-1"
                   style={{ cursor: "pointer" }}
+                  onClick={() => handleShowProfile(msg)}
                 >
-                  {msg.username || `User ${msg.user_id}`}
+                  <img
+                    src={msg.avatar ? `${baseURL}/user/uploads/${msg.avatar}` : `${baseURL}/user/uploads/default_avatar.png`}
+                    alt="avatar"
+                    className="rounded-circle me-2"
+                    width="24"
+                    height="24"
+                    onError={(e) => { e.target.onerror = null; e.target.src = `${baseURL}/user/uploads/default_avatar.png`; }}
+                    style={{ objectFit: "cover", border: "2px solid #0d6efd" }}
+                  />
+                  <span className="small fw-bold text-primary">
+                    {msg.username || `User ${msg.user_id}`}
+                  </span>
                 </div>
 
                 {/* Message row */}
 
                 <div className={`d-flex align-items-end`} style={{ position: "relative", width: "100%" }}>
-                  {/* Avatar + Reactions */}
-                  <div style={{ position: "relative" }}>
-                    <img
-                      src={msg.avatar ? `${baseURL}/user/uploads/${msg.avatar}` : "https://via.placeholder.com/30"}
-                      alt="avatar"
-                      className="rounded-circle me-2"
-                      width="30"
-                      height="30"
-                      onError={(e) => (e.target.style.display = "none")}
-                      onClick={() => handleShowProfile(msg)}
-                      style={{ cursor: "pointer", border: "2px solid #0d6efd" }}
-                    />
-
-                  </div>
-
                   {/* Message bubble */}
                   <div
                     className="p-2 rounded-3 bg-white border text-dark"
@@ -190,92 +230,63 @@ function GroupChatMessagesByDate({ gameName, messages, userId, baseURL, highligh
                       textAlign: "left",
                     }}
                   >
-                    <div style={{ paddingRight: "40px", marginBottom: "5px"}}>{msg.message}</div>
-                    <div
-                      style={{
-                        position: "absolute",
-                        bottom: "3px",
-                        right: "5px",
-                        fontSize: "0.6rem",
-                        color: "#6c757d",
-                      }}
-                    >
-                      
-                      {formattedTime}
-                    </div>
-                    {/* 💖 Reaction (bottom-left corner like WhatsApp) */}
-                    
-                    {(msgReactions[msg.id] || msg.emoji) && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          bottom: "-12px",
-                          left: "0px",
-                          background: "#ffffff",
-                          border: "1px solid #ddd",
-                          borderRadius: "50%",
-                          padding: "1px 5px",
-                          fontSize: "0.8rem",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "3px",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                        }}
-                      >
-                        {msgReactions[msg.id] || msg.emoji}
+                    {editingMsgId === msg.id ? (
+                      <div style={{ minWidth: "220px" }}>
+                        <MentionTextarea
+                          value={editText}
+                          onChange={setEditText}
+                          minRows={1}
+                          maxRows={8}
+                          baseURL={baseURL}
+                        />
+                        <div className="text-end mt-1">
+                          <Button size="sm" variant="outline-secondary" className="me-2" onClick={cancelEdit}>Cancel</Button>
+                          <Button size="sm" variant="primary" onClick={() => handleSaveEdit(msg.id)}>Save</Button>
+                        </div>
                       </div>
-                    )}
-
-                    
-                  </div>
-                  {/* Add Reaction button and Emoji Picker — only show for others' messages */}
-                  {!isMe && (
-                    <div>
-                      <button
-                        className="btn btn-sm text-muted p-0 mt-1"
-                        onClick={() =>
-                          setShowPickerFor(showPickerFor === msg.id ? null : msg.id)
-                        }
-                      >
-                        😊
-                      </button>
-                      {showPickerFor === msg.id && (
+                    ) : (
+                      <>
+                        <div style={{ paddingRight: "40px", marginBottom: "5px"}}>{renderWithMentions(msg.message, handleMentionClick)}</div>
                         <div
                           style={{
-                            position: "fixed",
-                            top: 0,
-                            left: 0,
-                            width: "100%",
-                            height: "100%",
-                            backgroundColor: "rgba(0,0,0,0.5)",
+                            position: "absolute",
+                            bottom: "3px",
+                            right: "5px",
+                            fontSize: "0.6rem",
+                            color: "#6c757d",
                             display: "flex",
-                            justifyContent: "center",
                             alignItems: "center",
-                            zIndex: 9999,
+                            gap: "6px",
                           }}
-                          onClick={() => setShowPickerFor(null)} // Close on background tap
                         >
-                          <div
-                            onClick={(e) => e.stopPropagation()} // Prevent background close
-                            style={{
-                              background: "#fff",
-                              borderRadius: "12px",
-                              padding: "15px",
-                              width: "90%",
-                              maxWidth: "350px",
-                              boxShadow: "0 4px 10px rgba(0,0,0,0.2)",
-                            }}
-                          >
-                            <EmojiPicker
-                              onEmojiClick={(emojiData) => handleEmojiSelect(emojiData, msg.id)}
-                              autoFocusSearch={false}
-                            />
-                          </div>
+                          {isMe && (
+                            <button
+                              type="button"
+                              className="btn btn-sm p-0"
+                              style={{ fontSize: "0.6rem", color: "#6c757d", textDecoration: "underline" }}
+                              onClick={() => startEdit(msg)}
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {msg.edited_at && <span>(edited)</span>}
+                          {formattedTime}
                         </div>
-                      )}
-
-                    </div>
-                  )}
+                      </>
+                    )}
+                    {/* 💖 Reactions (bottom-left corner like WhatsApp) -
+                        shared ReactionBar, same feature as the GameFeed. */}
+                    {editingMsgId !== msg.id && (
+                      <div style={{ position: "absolute", bottom: "-14px", left: "0px" }}>
+                        <ReactionBar
+                          reactions={msg.reactions}
+                          reactionIdPrefix={msg.id}
+                          canAddReaction={!isMe}
+                          onReact={(emoji) => handleEmojiSelect({ emoji }, msg.id)}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );

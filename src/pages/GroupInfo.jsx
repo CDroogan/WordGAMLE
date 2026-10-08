@@ -258,8 +258,9 @@ function GroupInfo() {
                                     className="rounded-circle mb-1"
                                     style={{ width: '50px', height: '50px', objectFit: 'cover', border: '2px solid #0d6efd' }}
                                     />
+                                    {!!member.is_paused && (
                                     <span
-                                    className={`badge ${member.is_paused ? 'bg-danger' : 'bg-success'}`}
+                                    className="badge bg-danger"
                                     style={{
                                         position: 'absolute',
                                         top: '0px',
@@ -269,8 +270,9 @@ function GroupInfo() {
                                         borderRadius: '8px'
                                     }}
                                     >
-                                    {member.is_paused ? 'Inactive' : 'Active'}
+                                    Inactive
                                     </span>
+                                    )}
                                 </div>
 
                                 <h6 className="mt-1 mb-0 text-primary">
@@ -370,50 +372,54 @@ function GroupInfo() {
                         {invites.length > 0 && userId === captainid && (
                         <Row className="my-4">
                             <Col>
-                            <h5 className="mb-3">Invitations Pending Acceptance:</h5>
-                            {invites.map((invite, i) => (
-                            <Row key={i} className="align-items-center mb-3">
-                                {/* Avatar */}
-                                <Col xs="auto">
-                                <img
-                                    src={
-                                    invite.avatar
-                                        ? `${baseURL}/user/uploads/${invite.avatar}`
-                                        : `${baseURL}/user/uploads/default_avatar.png`
-                                    }
-                                    alt="Profile"
-                                    className="rounded-circle"
-                                    style={{
-                                    width: "30px",
-                                    height: "30px",
-                                    objectFit: "cover",
-                                    }}
-                                />
-                                </Col>
+                            <div style={{ background: '#330072', borderRadius: '1rem', padding: '1rem' }}>
+                                <div className="border rounded p-3 bg-white">
+                                    <h5 className="mb-3">Invitations Pending Acceptance:</h5>
+                                    {invites.map((invite, i) => (
+                                    <Row key={i} className="align-items-center mb-3">
+                                        {/* Avatar */}
+                                        <Col xs="auto">
+                                        <img
+                                            src={
+                                            invite.avatar
+                                                ? `${baseURL}/user/uploads/${invite.avatar}`
+                                                : `${baseURL}/user/uploads/default_avatar.png`
+                                            }
+                                            alt="Profile"
+                                            className="rounded-circle"
+                                            style={{
+                                            width: "30px",
+                                            height: "30px",
+                                            objectFit: "cover",
+                                            }}
+                                        />
+                                        </Col>
 
-                                {/* Name & username */}
-                                <Col>
-                                <strong>
-                                    {invite.first_name} {invite.last_name}
-                                </strong>
-                                <br />
-                                <small className="text-muted">@{invite.username}</small>
-                                </Col>
-                                {/* Delete Icon */}
-                                <Col xs="auto" >
-                                    <Button
-                                        variant="danger"
-                                        size="sm"
-                                        onClick={() => {
-                                            setSelectedInviteId(invite.id);
-                                            setShowInviteDeleteModal(true);
-                                        }}
-                                        >
-                                        <FaTrash />
-                                    </Button>
-                                </Col>
-                            </Row>
-                            ))}
+                                        {/* Name & username */}
+                                        <Col>
+                                        <strong>
+                                            {invite.first_name} {invite.last_name}
+                                        </strong>
+                                        <br />
+                                        <small className="text-muted">@{invite.username}</small>
+                                        </Col>
+                                        {/* Delete Icon */}
+                                        <Col xs="auto" >
+                                            <Button
+                                                variant="danger"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setSelectedInviteId(invite.id);
+                                                    setShowInviteDeleteModal(true);
+                                                }}
+                                                >
+                                                <FaTrash />
+                                            </Button>
+                                        </Col>
+                                    </Row>
+                                    ))}
+                                </div>
+                            </div>
                             </Col>
                         </Row>
                         )}

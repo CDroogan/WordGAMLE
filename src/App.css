@@ -42,6 +42,12 @@ body{
 .form-check-input, .form-radio-input{
   accent-color: var(--wordgamle-accent);
 }
+/* The blinking text cursor (and, on Android Chrome, the draggable
+   selection handle beneath it) in any text field/textarea site-wide -
+   brand purple instead of each browser's own default color. */
+input, textarea, select, [contenteditable="true"]{
+  caret-color: var(--wordgamle-accent);
+}
 .form-check-input:checked{
   background-color: var(--wordgamle-accent) !important;
   border-color: var(--wordgamle-accent) !important;
@@ -511,7 +517,7 @@ cursor: pointer;
 .btn.white-btn{
   background-color: #ffffff !important;
   border: none;
-  color:#000000;
+  color: var(--wordgamle-accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 
 }
@@ -598,4 +604,43 @@ cursor: pointer;
 .cwd-swiper-animation .swiper-wrapper{
   justify-content: start !important;
 }
+}
+
+/* Pre-account homepage: "How it works" step numbers and clickable
+   explainer phrases ("Share and Chat", "CLICK HERE to see how!", etc.) */
+.home-step-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: var(--wordgamle-accent);
+  color: #fff;
+  font-weight: bold;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.home-popup-link {
+  /* !important because some containers (e.g. Group Chat's message
+     bubble, which uses Bootstrap's text-dark utility) set their own
+     text color with !important - a plain color rule always loses to
+     that regardless of nesting/specificity, so this has to match. */
+  color: #0d6efd !important;
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+
+.home-info-popup .modal-content {
+  border: 3px solid var(--wordgamle-accent);
+  border-radius: 24px;
+}
+
+.home-info-popup-img {
+  max-height: 70vh;
+  max-width: 100%;
 }

@@ -11,11 +11,10 @@ const GroupInvites = () => {
   const baseURL = import.meta.env.VITE_BASE_URL;
   const USER_AUTH_DATA = JSON.parse(localStorage.getItem('auth'));
   const userId = USER_AUTH_DATA?.id;
-  const [invites, setInvites] = useState([]);
   const [groupMessages, setGroupMessages] = useState([]);
+  const [mentions, setMentions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  
-  const inviteIntervalRef = useRef(null);
+
   const messageIntervalRef = useRef(null);
   const messageCountRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -30,41 +29,61 @@ const GroupInvites = () => {
   // only confirming actually calls handleMarkAllRead().
   const [previewAllRead, setPreviewAllRead] = useState(false);
 
-    // Invite polling effect
+  // GameFeed @mention polling - completely separate from Groups, so it
+  // has its own fetch, but shows up in the same bell dropdown/badge.
+  const mentionIntervalRef = useRef(null);
   useEffect(() => {
-      fetchGroupInvites();
-      inviteIntervalRef.current = setInterval(fetchGroupInvites, 8000);
-      return () => clearInterval(inviteIntervalRef.current);
-    
+    fetchMentions();
+    mentionIntervalRef.current = setInterval(fetchMentions, 8000);
+    return () => clearInterval(mentionIntervalRef.current);
   }, []);
 
+  const fetchMentions = async () => {
+    try {
+      const response = await axios.get(`${baseURL}/gamefeed/get-mentions.php?user_id=${userId}`);
+      const newMentions = Array.isArray(response.data.mentions) ? response.data.mentions : [];
+      setMentions(newMentions);
+    } catch (error) {
+      console.error('Error fetching mentions:', error);
+    }
+  };
+
+  const getUnseenMentionCount = (list) => {
+    if (!Array.isArray(list)) return 0;
+    return list.filter((m) => !m.seen_at).length;
+  };
+
+  const handleClickMention = async (mention) => {
+    setShowDropdown(false);
+    try {
+      await axios.post(`${baseURL}/gamefeed/mark-mentions-seen.php`, {
+        user_id: userId,
+        mention_id: mention.id,
+      });
+      setMentions((prev) => prev.map((m) => (m.id === mention.id ? { ...m, seen_at: 'seen' } : m)));
+      navigate(`/?post=${mention.post_id}`);
+    } catch (error) {
+      console.error('Error marking mention seen:', error);
+    }
+  };
+
+  // Without this, a notification that arrives while the Gamler already
+  // has the site open (e.g. a group invite sent to them just now) would
+  // never show up in the bell until they reload the page or click
+  // something else that happens to refetch it - mentions already poll
+  // this way, this just brings group_messages (invites included) in
+  // line with that.
+  const groupMessagesIntervalRef = useRef(null);
   useEffect(() => {
     fetchGroupMessages();
+    groupMessagesIntervalRef.current = setInterval(fetchGroupMessages, 8000);
+    return () => clearInterval(groupMessagesIntervalRef.current);
   }, []);
   useEffect(() => {
     if (Object.keys(notificationModes).length) {
       fetchGroupMessages();
     }
   }, [notificationModes]);
-
-
-  const fetchGroupInvites = async () => {
-    try {
-      const response = await axios.get(
-        `${baseURL}/groups/get-invites.php?user_id=${userId}`
-      );
-      
-      const newInvites = Array.isArray(response.data.invitations)
-        ? response.data.invitations
-        : [];
-
-      if (JSON.stringify(newInvites) !== JSON.stringify(invites)) {
-        setInvites(newInvites);
-      }
-    } catch (error) {
-      console.error('Error fetching invites:', error);
-    }
-  };
 
 
   //get all group id
@@ -163,98 +182,21 @@ const fetchGroupMessages = async () => {
     // setunReadCount(unreadCount);
 
     setGroupMessages(filteredMessages);
-
-    setunReadCount(prev => {
-      return getUnreadCount(filteredMessages, userId);
-    });
-
-
-    //setunReadCount(filteredUnreadCount);
-    // setunReadCount(response.data.total_unread);
   } catch (error) {
     console.error('Error fetching group messages:', error);
   }
 };
 
-  // Accept invite
-const handleAcceptInvite = async (inviteId, groupId) => {
-  setShowDropdown(false);
-  
-  const date = new Date(); // current date/time
-
-  // Get components in local time
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
-
-  // Format as desired
-  const formattedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-
-  try {
-     await axios.post(
-      `${baseURL}/groups/accept-invite.php`,
-      {
-        user_id: userId,
-        invite_id: inviteId,
-        group_id: groupId,
-        formattedDate
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    setInvites((prevInvites) =>
-      prevInvites.filter((invite) => invite.id !== inviteId)
-    );
-
-    if (invites.length === 1) {
-      clearInterval(inviteIntervalRef.current);
-    }
-
-    navigate(`/group/${groupId}`);
-    
-  } catch (error) {
-    console.error('Error accepting invite:', error);
-  }
-};
-
-
-// Decline invite
-const handleDeclineInvite = async (inviteId) => {
-  setShowDropdown(false);
-  try {
-    await axios.post(
-      `${baseURL}/groups/decline-invite.php`,
-      {
-        user_id: userId,
-        invite_id: inviteId
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    setInvites((prevInvites) =>
-      prevInvites.filter((invite) => invite.id !== inviteId)
-    );
-
-    if (invites.length === 1) {
-      clearInterval(inviteIntervalRef.current);
-    }
-
-    setShowDropdown(false); // Close dropdown
-  } catch (error) {
-    console.error('Error declining invite:', error);
-  }
-};
-
+// The bell badge should count every kind of pending notification, not
+// just unread group messages - a pending group invitation has no
+// "seen" concept of its own (it's resolved by Accept/Decline, not by
+// opening the dropdown), so it counts as pending for as long as it's
+// in the list.
+useEffect(() => {
+  setunReadCount(
+    getUnreadCount(groupMessages, userId) + getUnseenMentionCount(mentions)
+  );
+}, [groupMessages, mentions, userId]);
 
   // const handleClickGroup = async (e, groupId, game, userId, msgId, msgFrom, msgReportDate, msgPeriod) => {
   //   e.preventDefault();
@@ -323,6 +265,28 @@ const handleDeclineInvite = async (inviteId) => {
 
       await fetchGroupMessages();
       navigate(`/group/${groupId}/stats?msg_id=${msgId}`);
+    } catch (error) {
+      console.error("Axios error:", error);
+    }
+  };
+
+  // A group invitation notification - accept/decline now live on the
+  // Profile page's "Pending Invitations" section, not here, so this just
+  // marks the notification seen (same as opening any other notification
+  // would) and sends the Gamler there.
+  const handleClickInvite = async (e, groupId, userId) => {
+    e.preventDefault();
+    setShowDropdown(false);
+
+    try {
+      await axios.post(`${baseURL}/groups/update-seen-ids.php`, {
+        group_id: groupId,
+        game_name: 'invite',
+        user_id: userId,
+      });
+
+      await fetchGroupMessages();
+      navigate('/edit-profile');
     } catch (error) {
       console.error("Axios error:", error);
     }
@@ -549,6 +513,9 @@ const handleClick = async (
       await axios.post(`${baseURL}/groups/mark-all-seen.php`, {
         user_id: userId,
       });
+      await axios.post(`${baseURL}/gamefeed/mark-mentions-seen.php`, {
+        user_id: userId,
+      });
 
       const updatedMessages = groupMessages.map((msg) => ({
         ...msg,
@@ -558,7 +525,7 @@ const handleClick = async (
       }));
 
       setGroupMessages(updatedMessages);
-      setunReadCount(0);
+      setMentions((prev) => prev.map((m) => ({ ...m, seen_at: 'seen' })));
 
     } catch (error) {
       console.error("Error marking all as read:", error);
@@ -644,7 +611,7 @@ const handleClick = async (
 
         </Dropdown.Header>
 
-          {(Array.isArray(invites) && invites.length > 0) || (Array.isArray(groupMessages) && groupMessages.length > 0) ? (
+          {(Array.isArray(groupMessages) && groupMessages.length > 0) || (Array.isArray(mentions) && mentions.length > 0) ? (
   <div
     style={{
       maxHeight: "300px",        // adjust height as needed
@@ -655,31 +622,35 @@ const handleClick = async (
     }}
   >
     <ListGroup variant="flush" style={{ minWidth: "300px" }}>
-      {/* Invites */}
-      {Array.isArray(invites) && invites.length > 0 &&
-        invites.map((invite) => (
-          <ListGroup.Item key={`invite-${invite.id}`}>
-            <p>You have received an invitation from "{invite.group_name}"</p>
-            <p><strong>Group Name:</strong> {invite.group_name}</p>
-            <p>
-              <strong>Group Captain:</strong> {`${invite.first_name} ${invite.last_name} (${invite.captain_name})`}
-            </p>
-            <Button
-              size="sm"
-              variant="success"
-              onClick={() => handleAcceptInvite(invite.id, invite.group_id)}
+      {/* GameFeed @mentions - completely separate from Groups, shown in
+          the same bell dropdown for one unified notification list. */}
+      {Array.isArray(mentions) && mentions.length > 0 &&
+        mentions.map((mention) => {
+          const isUnread = !previewAllRead && !mention.seen_at;
+          return (
+            <ListGroup.Item
+              key={`mention-${mention.id}`}
+              action
+              className={`${isUnread ? "unread-msg" : "read-msg"} msg-item`}
+              style={{ cursor: "pointer" }}
+              onClick={() => handleClickMention(mention)}
             >
-              Accept
-            </Button>{" "}
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => handleDeclineInvite(invite.id)}
-            >
-              Decline
-            </Button>
-          </ListGroup.Item>
-        ))
+              <div className="msg-row">
+                <div className="msg-left">
+                  <img
+                    src={mention.mentioning_avatar ? `${baseURL}/user/uploads/${mention.mentioning_avatar}` : `${baseURL}/user/uploads/default_avatar.png`}
+                    alt=""
+                    className="rounded-circle me-2"
+                    style={{ width: '24px', height: '24px', objectFit: 'cover', verticalAlign: 'middle' }}
+                  />
+                  <strong>{mention.mentioning_username}</strong> mentioned you in {mention.comment_id ? 'a comment' : 'a post'} in the GameFeed.
+                  <div className="time-ago">{timeAgo(mention.created_at, true)}</div>
+                </div>
+                {isUnread && <span className="unread-dot"></span>}
+              </div>
+            </ListGroup.Item>
+          );
+        })
       }
 
       {/* Group Messages */}
@@ -712,6 +683,16 @@ const handleClick = async (
             processedMessage = processedMessage.replace(/\bWINS\b/g, "WIN");
           }
 
+          // Deuces Award: the winner's own view gets different wording
+          // than everyone else's, the same way the name above becomes
+          // "You" only for them.
+          if (msg.msg_from === "deuces_award" && processedMessage.includes("<strong>You</strong>")) {
+            processedMessage = processedMessage.replace(
+              "Two 2s Today!",
+              "Great Phrazle day, whoop!!"
+            );
+          }
+
          
 
           return (
@@ -729,6 +710,8 @@ const handleClick = async (
               onClick={(e) =>
                 (msg.msg_from === "group_deleted" || msg.msg_from === "member_removed")
                   ? handleClickHome(e, msg.group_id, msg.game_name, userId)
+                  : msg.msg_from === "invite"
+                  ? handleClickInvite(e, msg.group_id, userId)
                   : msg.msg_from === "group"
                   ? handleClickGroup(e, msg.group_id, msg.game_name, userId, msg.msg_id, msg.msg_from, msg.report_date, msg.period )
                   : msg.game_name === "general_chat"
@@ -745,7 +728,7 @@ const handleClick = async (
 
                   {/* LEFT SIDE */}
                   <div className="msg-left">
-                    {["group", "group_deleted", "member_removed"].includes(msg.msg_from) ? (
+                    {["group", "group_deleted", "member_removed", "invite"].includes(msg.msg_from) ? (
                       <p>{processedMessage}</p>
                     ) : (
                       <>

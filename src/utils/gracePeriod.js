@@ -138,3 +138,122 @@ export function consumeGracePeriodJump(gameKey) {
     return null;
   }
 }
+
+// --- Spoiler Alert (GameFeed) ---
+
+export const GAME_DISPLAY_NAMES = {
+  wordle: 'Wordle',
+  connections: 'Connections',
+  phrazle: 'Phrazle',
+  quordle: 'Quordle',
+  octordle: 'Octordle',
+};
+
+// The same external site each game's own "Play" button sends a Gamler
+// to (see each game's own PlayService component) - a Spoiler Alert
+// placeholder's game link goes straight there too, not to this site's
+// own internal game page.
+export const GAME_PLAY_URLS = {
+  wordle: 'https://www.nytimes.com/games/wordle/index.html',
+  connections: 'https://www.nytimes.com/games/connections',
+  phrazle: 'https://solitaired.com/phrazle',
+  quordle: 'https://www.merriam-webster.com/games/quordle/#/classic',
+  octordle: 'https://www.merriam-webster.com/games/octordle/daily',
+};
+
+function formatLongDate(date) {
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function formatGameNumber(n) {
+  return n.toLocaleString('en-US');
+}
+
+function parseDateOnly(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// The same "Connections game #1,212 (October 5, 2026)" style reference
+// used both in the Spoiler Alert dropdown's checklist and in the
+// explanatory popup behind the Ⓢ badge - built from a stored tag
+// (game/date/period/number) rather than the current moment, so it still
+// describes the actual tagged game correctly no matter when it's shown.
+export function formatSpoilerGameReference(tag) {
+  const longDate = formatLongDate(parseDateOnly(tag.date));
+  const numberStr = formatGameNumber(tag.number);
+  if (tag.game === 'phrazle') {
+    return `Phrazle game #${numberStr} (${longDate} ${tag.period === 'AM' ? 'AM' : 'PM'})`;
+  }
+  return `${GAME_DISPLAY_NAMES[tag.game] || tag.game} game #${numberStr} (${longDate})`;
+}
+
+// Builds the Spoiler Alert dropdown's checklist: each game's own
+// specific current period, computed the same way its own Score Modal
+// would right now - a tag records exactly this period so other
+// Gamlers are gated against the correct game/date, no matter when they
+// later view the post.
+export function getSpoilerGameOptions(now = new Date()) {
+  const dateStr = formatDateOnly(now);
+  const phrazle = getPhrazlePeriod(now);
+  const phrazlePeriod = phrazle.isAM ? 'AM' : 'PM';
+
+  const tags = [
+    { game: 'wordle', period: null, date: dateStr, number: getWordleGameNumber(now) },
+    { game: 'connections', period: null, date: dateStr, number: getConnectionsGameNumber(now) },
+    { game: 'phrazle', period: phrazlePeriod, date: dateStr, number: phrazle.number },
+    { game: 'quordle', period: null, date: dateStr, number: getQuordleGameNumber(now) },
+    { game: 'octordle', period: null, date: dateStr, number: getOctordleGameNumber(now) },
+  ];
+
+  return tags.map((tag) => ({ ...tag, label: formatSpoilerGameReference(tag) }));
+}
+
+// The instant a tagged game/period's own spoiler protection fully
+// closes, using the viewer's own local clock. This is NOT "3 hours
+// after the tagged period starts" - that would barely protect anything,
+// since most Gamlers play well after their day begins. It's the same
+// rule already used everywhere else in this file for "is a period still
+// gracable": a period isn't considered fully over until 3 hours into
+// the *next* period (isDailyGraceActive/isPhrazleGraceActive both treat
+// the first 3 hours of a new period as grace time for the one before
+// it) - so a tagged Connections post from today isn't safe to reveal to
+// everyone until 3am tomorrow, a tagged AM Phrazle post until 3pm today,
+// and a tagged PM Phrazle post until 3am tomorrow.
+export function getTaggedPeriodGraceEnd(game, date, period) {
+  const [y, m, d] = date.split('-').map(Number);
+  let nextPeriodStart;
+  if (game === 'phrazle' && period === 'AM') {
+    nextPeriodStart = new Date(y, m - 1, d, 12, 0, 0, 0); // PM, same day
+  } else {
+    nextPeriodStart = new Date(y, m - 1, d + 1, 0, 0, 0, 0); // next calendar day
+  }
+  return new Date(nextPeriodStart.getTime() + GRACE_PERIOD_MS);
+}
+
+export function isTaggedPeriodGraceExpired(game, date, period, now = new Date()) {
+  return now.getTime() >= getTaggedPeriodGraceEnd(game, date, period).getTime();
+}
+
+// e.g. "Wordle, Connections, PM Phrazle, Quordle and Octordle" - Phrazle
+// specifically gets its AM/PM prefix since the game name alone doesn't
+// say which of its two daily periods was tagged.
+export function describeSpoilerGames(tags) {
+  const names = tags.map((t) => {
+    if (t.game === 'phrazle') return `${t.period === 'AM' ? 'AM' : 'PM'} Phrazle`;
+    return GAME_DISPLAY_NAMES[t.game] || t.game;
+  });
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+// Same join pattern as describeSpoilerGames, but with each game's full
+// "Connections game #1,212 (October 5, 2026)" reference instead of just
+// its name - used by the Ⓢ badge's explanatory popup.
+export function describeSpoilerGameReferences(tags) {
+  const refs = tags.map(formatSpoilerGameReference);
+  if (refs.length === 1) return refs[0];
+  if (refs.length === 2) return `${refs[0]} and ${refs[1]}`;
+  return `${refs.slice(0, -1).join(', ')} and ${refs[refs.length - 1]}`;
+}
