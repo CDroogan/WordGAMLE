@@ -26,6 +26,7 @@ import enhancedStatsPopupImg from "../assets/homepage-popups/enhanced-stats.png"
 import gamleScorePopupImg from "../assets/homepage-popups/gamle-score.jpg";
 import trackResultsPopupImg from "../assets/homepage-popups/track-results.jpg";
 import WordGamleLogo from '../WordleTitleLogo.png';
+import { shareInviteFriends } from '../utils/inviteFriends';
 
 function Home() {
     const baseURL = import.meta.env.VITE_BASE_URL;
@@ -156,37 +157,11 @@ function Home() {
 
     const parts = cleanText.split('[Invite Friends]');
 
-    const inviteFriends = async () => {
-        const frontendURL = window.location.origin;
-        const fullName = userAuthData.firstname && userAuthData.lastname
-        ? `${userAuthData.firstname} ${userAuthData.lastname}`
-        : 'A friend';
-
-        const message = `${fullName} has invited you to create an account on WordGAMLE.com\n\n👉 Enter ‘Casa’ (case sensitive) to get into the site!`;
-
-        const shareData = {
-            title: 'Join WordGAMLE!',
-            text: message,
-            url: frontendURL,
-        };
-
-        if (navigator.share) {
-            
-            try {
-            await navigator.share(shareData);
-            
-            } catch (err) {
-            console.error('Share failed:', err);
-            }
-        } else {
-            try {
-            await navigator.clipboard.writeText(`${message}\n${shareData.url}`);
-            alert('Invite message copied to clipboard!');
-            } catch (err) {
-            alert('Could not copy. Please share manually.');
-            }
-        }
-    };
+    const inviteFriends = () => shareInviteFriends({
+        userId,
+        firstName: userAuthData.firstname,
+        lastName: userAuthData.lastname,
+    });
         const today = new Date();
         const yesterday = new Date();
         yesterday.setDate(today.getDate() - 1);

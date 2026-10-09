@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Form, Button, InputGroup } from 'react-bootstrap';
 import Axios from "axios";
 import { toast } from 'react-toastify';
-import logo from '../Logo.png';
+import WordGamleLogo from '../WordleTitleLogo.png';
 import { useNavigate } from "react-router-dom";
 import { useLocation } from 'react-router-dom';
 
@@ -28,6 +28,10 @@ function Registerform() {
     const params = new URLSearchParams(location.search);
     const encryptedId = params.get('group_id');
     const groupId = encryptedId ? atob(encryptedId) : null;
+    const encryptedInviterId = params.get('invited_by');
+    const inviterId = encryptedInviterId ? atob(encryptedInviterId) : null;
+    const inviteToken = params.get('invite_token');
+    const [inviter, setInviter] = useState(null);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setConfirmShowPassword] = useState(false);
     const [registrationformText, setRegistrationFormText] = useState({
@@ -71,7 +75,44 @@ function Registerform() {
             console.error('Error fetching homepage text:', err);
           });
       }, [baseURL]);
-    
+
+      useEffect(() => {
+        if (!inviterId) return;
+        Axios.get(`${baseURL}/user/get-user-by-id.php`, { params: { user_id: inviterId } })
+          .then((res) => {
+            if (res.data.success) setInviter(res.data.user);
+          })
+          .catch(() => {});
+      }, [inviterId, baseURL]);
+
+      // A group-site-invite token resolves to the same {username, avatar,
+      // first_name, last_name} shape as get-user-by-id.php above, so it
+      // reuses the exact same "inviter" banner - only this flow also
+      // carries an (optional) suggested name to pre-fill below.
+      useEffect(() => {
+        if (!inviteToken) return;
+        Axios.get(`${baseURL}/groups/get-site-invite.php`, { params: { token: inviteToken } })
+          .then((res) => {
+            if (res.data.status === 'success') {
+              const invite = res.data.invite;
+              setInviter({
+                username: invite.username,
+                avatar: invite.avatar,
+                first_name: invite.first_name,
+                last_name: invite.last_name,
+              });
+              if (invite.invited_name) {
+                const nameParts = invite.invited_name.trim().split(' ');
+                setfirstName(nameParts[0] || '');
+                setlastName(nameParts.slice(1).join(' '));
+              }
+            } else {
+              toast.error(res.data.message || 'This invite link is no longer valid.');
+            }
+          })
+          .catch(() => {});
+      }, [inviteToken, baseURL]);
+
     useEffect(() => {
         const USER_AUTH_DATA = JSON.parse(localStorage.getItem("auth"));
         if (USER_AUTH_DATA?.email) {
@@ -206,6 +247,9 @@ function Registerform() {
         if (groupId) {
             formData.append('groupId', groupId);
         }
+        if (inviteToken) {
+            formData.append('inviteToken', inviteToken);
+        }
         try {
             const res = await Axios.post(`${baseURL}/user/create-user.php`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
@@ -261,7 +305,11 @@ function Registerform() {
                     console.log(loginRes.data);
                     if (loginRes.data.status === 'success' && loginRes.data) {
                         localStorage.setItem('auth', JSON.stringify(loginRes.data));
-                        navigate('/');
+                        // Landing on the Profile page (instead of Home) puts
+                        // the new pending group invite - and its Accept
+                        // button - directly in front of them, rather than
+                        // leaving them to notice it on their own later.
+                        navigate(inviteToken ? '/edit-profile' : '/');
                     } else {
                         toast.error("Auto-login failed. Please log in manually.",{ autoClose: 3000 });
                         navigate('/login');
@@ -291,7 +339,27 @@ function Registerform() {
                     </div>
                 ) : (
                     <Col md={6}>
-                        <img src={logo} alt="logo" className='d-block m-auto' />
+                        <img src={WordGamleLogo} alt="WordGAMLE" className='d-block m-auto' style={{ maxWidth: '220px' }} />
+
+                        {inviter && (
+                            <div className="text-center mb-3">
+                                <h5 className="fw-bold mb-3">Welcome to WordGAMLE!</h5>
+                                <p className="mb-3">
+                                    <strong>{inviter.username}</strong>{' '}
+                                    <img
+                                        src={inviter.avatar ? `${baseURL}/user/uploads/${inviter.avatar}` : `${baseURL}/user/uploads/default_avatar.png`}
+                                        alt=""
+                                        width="24"
+                                        height="24"
+                                        className="rounded-circle"
+                                        style={{ objectFit: 'cover' }}
+                                    />
+                                    {' '}({inviter.first_name} {inviter.last_name}) invited you to create an account on WordGAMLE.
+                                </p>
+                                <p className="fw-bold mb-4">Sign up here and Get Your GAMLE on!</p>
+                            </div>
+                        )}
+
                         <h5>Create New Account</h5>
                         <Form encType="multipart/form-data" onSubmit={signUp}>
                         <Row>
@@ -455,6 +523,7 @@ function Registerform() {
                                             onChange={(e) => setPassword(e.target.value)}
                                             onBlur={() => handleBlur('password')}
                                             placeholder={registrationformText.password_placeholder}
+                                            autoComplete="new-password"
                                         />
                                         <InputGroup.Text style={{ cursor: 'pointer' }} onClick={togglePasswordVisibility}>
                                             <i className={showPassword ? "fa fa-eye-slash" : "fa fa-eye"}></i>
@@ -485,6 +554,7 @@ function Registerform() {
                                         onChange={(e) => setConfirmpassword(e.target.value)}
                                         onBlur={() => handleBlur('confirmpassword')}
                                         placeholder={registrationformText.confirm_password_placeholder}
+                                        autoComplete="new-password"
                                         />
                                         <InputGroup.Text style={{ cursor: 'pointer' }} onClick={toggleConfirmPasswordVisibility}>
                                             <i className={showConfirmPassword ? "fa fa-eye-slash" : "fa fa-eye"}></i>
