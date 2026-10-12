@@ -10,6 +10,8 @@ import Statistics from './pages/Statistics';
 import Resetpwd from './auth/Resetpwd';
 import Resetpwdform from './auth/Resetpwdform';
 import UserProfile from './components/Games/Wordle/UserProfile';
+import GamleFriends from './pages/GamleFriends';
+import PrivateMessages from './pages/PrivateMessages';
 import Home from './pages/Home';
 import Connectionsgame from './components/Games/Connections/GameLayout';
 import Phrazlegame from './components/Games/Phrazle/GameLayout';
@@ -32,6 +34,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import AdminText from './pages/AdminText';
 import AdminRoute from './auth/AdminRoute';
 import UsersList from './pages/UsersList';
+import GroupsAdminList from './pages/GroupsAdminList';
 import GamleIntro from './pages/GamleIntro';
 import FAQPage from './pages/FAQPage';
 import RulesPage from './pages/RulesPage';
@@ -66,6 +69,7 @@ function App() {
           <Route element={<AdminRoute />}>
             <Route exact path="/admin-text" element={<AdminText />} />
             <Route exact path="/users-list" element={<UsersList />} />
+            <Route exact path="/groups-list" element={<GroupsAdminList />} />
           </Route>
           <Route exact path= '/groups' element={<Groups/>}/>
           <Route exact path = '/group-invites' element = {<GroupInvites/>}/>
@@ -80,6 +84,8 @@ function App() {
           <Route exact path= '/quordlestats' element={<QuordleStat/>}/>
           <Route exact path= '/octordlestats' element={<OctordleStat/>}/>
           <Route exact path= '/edit-profile' element={<UserProfile/>}/>
+          <Route exact path= '/gamle-friends' element={<GamleFriends/>}/>
+          <Route exact path= '/private-messages' element={<PrivateMessages/>}/>
         </Route>
       </Routes>
       </LeaderboardProvider>

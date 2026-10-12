@@ -47,6 +47,7 @@ function UserProfile() {
     const [showAcceptWizard, setShowAcceptWizard] = useState(false);
     const [acceptedInvite, setAcceptedInvite] = useState(null);
     const [showNotificationsSoon, setShowNotificationsSoon] = useState(false);
+    const [pendingFriendRequests, setPendingFriendRequests] = useState([]);
 
     const [registrationformText, setRegistrationFormText] = useState({
             firstname_label: '',
@@ -129,6 +130,50 @@ function UserProfile() {
         return () => clearInterval(interval);
     }, [userId]);
 
+    // Pending GamleFriend Requests - same "always one obvious place to
+    // deal with it" rationale as Pending Invitations above, polled the
+    // same way. Kept completely separate (own table, own endpoints) since
+    // friend requests aren't tied to a group.
+    const fetchPendingFriendRequests = async () => {
+        try {
+            const res = await Axios.get(`${baseURL}/friends/get-pending-requests.php?user_id=${userId}`);
+            setPendingFriendRequests(Array.isArray(res.data.requests) ? res.data.requests : []);
+        } catch (error) {
+            console.error("Error fetching pending friend requests:", error);
+        }
+    };
+
+    useEffect(() => {
+        if (!userId) return;
+        fetchPendingFriendRequests();
+        const interval = setInterval(fetchPendingFriendRequests, 15000);
+        return () => clearInterval(interval);
+    }, [userId]);
+
+    const handleAcceptFriendRequest = async (request) => {
+        try {
+            await Axios.post(`${baseURL}/friends/accept-request.php`, {
+                user_id: userId,
+                request_id: request.id,
+            });
+            setPendingFriendRequests((prev) => prev.filter((r) => r.id !== request.id));
+        } catch (error) {
+            toast.error("Failed to accept friend request.");
+        }
+    };
+
+    const handleDeclineFriendRequest = async (request) => {
+        try {
+            await Axios.post(`${baseURL}/friends/decline-request.php`, {
+                user_id: userId,
+                request_id: request.id,
+            });
+            setPendingFriendRequests((prev) => prev.filter((r) => r.id !== request.id));
+        } catch (error) {
+            toast.error("Failed to decline friend request.");
+        }
+    };
+
     const handleAcceptInvite = async (invite) => {
         const date = new Date();
         const pad = (n) => String(n).padStart(2, '0');
@@ -160,18 +205,49 @@ function UserProfile() {
         }
     };
 
+    // A modern phone photo's file SIZE can be small (a 140KB JPG) while
+    // its PIXEL dimensions are still huge (4000x3000+), since that's just
+    // JPEG compression. Handing that straight to the cropper's canvas can
+    // exceed mobile Safari's canvas memory limit, which doesn't throw a
+    // catchable JS error - it just silently reloads the page, wiping all
+    // state, which looks exactly like "the whole thing disappears and I'm
+    // back on the Profile page with no image showing". Downscaling to a
+    // safe max dimension here, before the image ever reaches the cropper,
+    // avoids that regardless of the original photo's dimensions.
+    const MAX_UPLOAD_DIMENSION = 1600;
+
     const handleUpload = (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setRawImage(reader.result); // show in cropper
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = Math.min(1, MAX_UPLOAD_DIMENSION / Math.max(img.width, img.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.width * scale);
+                canvas.height = Math.round(img.height * scale);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                setRawImage(canvas.toDataURL('image/jpeg', 0.9)); // show in cropper
                 setShowCropModal(true);
             };
-            reader.readAsDataURL(file);
-        }
+            img.onerror = () => {
+                toast.error("Could not read that image. Please try a different photo.");
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
     };
 
+    // Left as a direct URL (not run through loadScaledImageDataUrl) - that
+    // helper draws the image into a canvas, which the browser blocks
+    // ("tainted canvas") for a cross-origin image unless the server sends
+    // matching CORS headers on that static file request, which a plain
+    // Apache-served /user/uploads/ file isn't guaranteed to do. This path
+    // already worked before, so it's left alone rather than risking that
+    // regression for a case that wasn't reported as broken.
     const handleAvatarClick = () => {
         if (previewUrl && !previewUrl.startsWith("blob:")) {
             setRawImage(`${baseURL}/user/uploads/${previewUrl}`);
@@ -179,15 +255,46 @@ function UserProfile() {
         }
     };
 
+    // Crop Image is the one and only save action for a new photo - nothing
+    // else on this page persists it, so it must save immediately rather
+    // than waiting for a separate "Update Profile" click buried in the
+    // Profile Settings modal. That disconnect (introduced when Profile
+    // Settings was split into its own modal) is what caused newly cropped
+    // photos to silently never actually save.
     const cropImage = () => {
         const cropper = cropperRef.current?.cropper;
         if (cropper && cropper.getCroppedCanvas()) {
-            cropper.getCroppedCanvas().toBlob((blob) => {
-                if (blob) {
-                    setAvatar(blob);
-                    setPreviewUrl(URL.createObjectURL(blob));
-                    setRawImage(null);
-                    setShowCropModal(false);
+            cropper.getCroppedCanvas().toBlob(async (blob) => {
+                if (!blob) return;
+
+                const objectUrl = URL.createObjectURL(blob);
+                setAvatar(blob);
+                setPreviewUrl(objectUrl);
+                setRawImage(null);
+                setShowCropModal(false);
+
+                try {
+                    const formData = new FormData();
+                    formData.append("id", userData.id);
+                    formData.append("firstName", firstName);
+                    formData.append("lastName", lastName);
+                    formData.append("username", username);
+                    formData.append("phone", phone);
+                    formData.append("avatar", blob);
+
+                    const response = await Axios.post(`${baseURL}/user/edit-user.php`, formData);
+
+                    if (response.data.status === "success") {
+                        toast.success("Profile picture updated!");
+                        localStorage.setItem("auth", JSON.stringify({
+                            ...USER_AUTH_DATA,
+                            avatar: `${response.data.avatar || objectUrl}?t=${Date.now()}`,
+                        }));
+                    } else {
+                        toast.error(response.data.message || "Failed to update profile picture");
+                    }
+                } catch (error) {
+                    toast.error("Failed to update profile picture");
                 }
             });
         }
@@ -280,7 +387,7 @@ function UserProfile() {
     return (
         <Container>
             <Row className="align-content-center justify-content-center">
-                <Col md={5}>
+                <Col md={5} className="d-flex flex-column" style={{ minHeight: 'calc(100vh - 160px)' }}>
                     <div className="mb-3 text-center">
                         <div className="profile-pic-wrapper">
                             <label className="profile-pic-label" onClick={handleAvatarClick}>
@@ -320,7 +427,7 @@ function UserProfile() {
                     {pendingInvites.length > 0 && (
                         <div className="my-4" style={{ background: '#330072', borderRadius: '1rem', padding: '1rem' }}>
                             <div className="border rounded p-3 bg-white">
-                                <h5 className="mb-3">Pending Invitations:</h5>
+                                <h5 className="mb-3">Pending Group Invitations:</h5>
                                 {pendingInvites.map((invite) => (
                                     <div key={invite.id} className="mb-3">
                                         <div><strong>Group Name:</strong> {invite.group_name}</div>
@@ -339,6 +446,33 @@ function UserProfile() {
                         </div>
                     )}
 
+                    {pendingFriendRequests.length > 0 && (
+                        <div className="my-4" style={{ background: '#330072', borderRadius: '1rem', padding: '1rem' }}>
+                            <div className="border rounded p-3 bg-white">
+                                <h5 className="mb-3">Pending GamleFriend Requests:</h5>
+                                {pendingFriendRequests.map((request) => (
+                                    <div key={request.id} className="mb-3 d-flex align-items-center">
+                                        <img
+                                            src={request.sender_avatar ? `${baseURL}/user/uploads/${request.sender_avatar}` : `${baseURL}/user/uploads/defalut_avatar.png`}
+                                            alt=""
+                                            className="rounded-circle me-2"
+                                            style={{ width: '32px', height: '32px', objectFit: 'cover' }}
+                                        />
+                                        <div className="flex-grow-1">
+                                            <strong>{request.sender_first_name} {request.sender_last_name}</strong> ({request.sender_username})
+                                        </div>
+                                        <Button size="sm" variant="success" className="me-2" onClick={() => handleAcceptFriendRequest(request)}>
+                                            Accept
+                                        </Button>
+                                        <Button size="sm" variant="danger" onClick={() => handleDeclineFriendRequest(request)}>
+                                            Decline
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Placeholder for now - a real per-Gamler notification
                         management page is a planned future feature. */}
                     <Button className="btn btn-block btn-hero-lg btn-hero-success mt-2 w-100" onClick={() => setShowNotificationsSoon(true)}>
@@ -347,9 +481,23 @@ function UserProfile() {
                     <Button className="btn btn-block btn-hero-lg btn-hero-success mt-2 w-100" onClick={() => setShowSettings(true)}>
                         Profile Settings
                     </Button>
-                    <Button className="btn btn-block btn-hero-lg btn-hero-success mt-2 w-100" onClick={() => setShowManage(true)}>
-                        Manage Account
+                    <Button className="btn btn-block btn-hero-lg btn-hero-success mt-2 w-100" onClick={() => navigate('/gamle-friends')}>
+                        Gamle Friends
                     </Button>
+
+                    {/* Pinned to the bottom of the page, same layout as the
+                        mockup - Manage Account and PMs sit in their own
+                        footer row instead of stacking with the buttons
+                        above, since both are more "exit the profile page"
+                        actions than profile-editing ones. */}
+                    <div className="mt-auto d-flex justify-content-between gap-2 pt-4">
+                        <Button className="btn btn-hero-lg btn-hero-success" onClick={() => setShowManage(true)}>
+                            Manage Account
+                        </Button>
+                        <Button className="btn btn-hero-lg btn-hero-success" onClick={() => navigate('/private-messages')}>
+                            Private Messages
+                        </Button>
+                    </div>
                 </Col>
             </Row>
 

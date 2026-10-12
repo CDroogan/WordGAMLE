@@ -14,6 +14,7 @@ import InviteGroupandSite from './InviteGroupAndSite';
 import GroupDeletePreference from '../constant/Models/GroupDeletePreference';
 import RemoveMemberConfirmModal from '../constant/Models/RemoveMemberConfirmModal';
 import AddMembers from '../constant/Models/AddMembers';
+import MemberGameSelections from './MemberGameSelections';
 
 function GroupInfo() {
     const baseURL = import.meta.env.VITE_BASE_URL;
@@ -33,6 +34,8 @@ function GroupInfo() {
     const userId = USER_AUTH_DATA?.id;
     const [invites, setInvites] = useState([]);
     const [showProfile, setShowProfile] = useState(false);
+    const [showChangePreferences, setShowChangePreferences] = useState(false);
+    const [leaderboardText, setLeaderboardText] = useState({});
     const [selectedMember, setSelectedMember] = useState(null);
     const [showInviteDeleteModal, setShowInviteDeleteModal] = useState(false);
     const [selectedInviteId, setSelectedInviteId] = useState(null);
@@ -42,6 +45,12 @@ function GroupInfo() {
     useEffect(() => {
         fetchGroupInfo();
     }, [id]);
+
+    useEffect(() => {
+        Axios.get(`${baseURL}/user/get-homepage-text.php`)
+            .then((res) => setLeaderboardText(res.data || {}))
+            .catch(() => {});
+    }, [baseURL]);
 
     const fetchGroupInfo = async () => {
         try {
@@ -152,7 +161,7 @@ function GroupInfo() {
         setDeleteLoading(true);
         setShowDeleteConfirm(false);
         try {
-            const res = await Axios.post(`${baseURL}/groups/delete-group.php`, { group_id: Number(id) });
+            const res = await Axios.post(`${baseURL}/groups/delete-group.php`, { group_id: Number(id), user_id: userId });
             if (res.data.status === "success") {
                 navigate('/groups');
             } else {
@@ -245,7 +254,7 @@ function GroupInfo() {
                     style={{ flexWrap: 'nowrap' }}
                     >
                         {/* Avatar and username */}
-                        <Col xs={5} md={4} lg={4} className="text-center text-md-start">
+                        <Col xs={4} md={4} lg={4} className="text-center text-md-start">
                             <div onClick={() => handleShowProfile(member)} style={{ cursor: 'pointer' }}>
                                 <div style={{ position: 'relative', display: 'inline-block' }}>
                                     <img
@@ -283,7 +292,7 @@ function GroupInfo() {
                         </Col>
 
                         {/* Selected Games */}
-                        <Col xs={5}  md={6} lg={6}  className="text-start">
+                        <Col xs={4}  md={3} lg={3}  className="text-start">
                             <ul style={{ listStyleType: 'none', padding: 0, marginBottom: 0 }}>
                             {["Wordle", "Connections", "Phrazle", "Quordle", "Octordle"].map((game) => (
                                 <li key={game}>
@@ -295,29 +304,38 @@ function GroupInfo() {
                             </ul>
                         </Col>
 
-                        {/* Remove button */}
-                        
-                        {userId === captainid && (
-                            <>
-                        
-                            <Col xs={2} md={2} lg={2}  className="text-center">
-                                {member.member_id !== captainid && (
-                                    <Button
-                                        variant="danger"
-                                        size="sm"
-                                        onClick={() => {
-                                            setSelectedMemberId(member.member_id);
-                                            setShowRemoveConfirm(true);
-                                        }}
-                                    >
-                                        <FaTrash />
-                                    </Button>
-
-                                )}
+                        {/* Remove button - captain viewing someone else's row.
+                            Mutually exclusive with Change Preferences below
+                            (which covers the viewer's own row, captain or
+                            not) so a captain's own row never renders both
+                            columns at once and overflows the row. */}
+                        {userId === captainid && member.member_id !== captainid && (
+                            <Col xs={4} md={5} lg={5}  className="text-center">
+                                <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => {
+                                        setSelectedMemberId(member.member_id);
+                                        setShowRemoveConfirm(true);
+                                    }}
+                                >
+                                    <FaTrash />
+                                </Button>
                             </Col>
-                        
-                            </>
-                        )} 
+                        )}
+
+                        {/* Change Preferences - only next to the viewer's own row */}
+                        {member.member_id === userId && (
+                            <Col xs={4} md={5} lg={5} className="text-center">
+                                <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => setShowChangePreferences(true)}
+                                >
+                                    Change Preferences
+                                </Button>
+                            </Col>
+                        )}
                     </Row>
 
                     ))}
@@ -509,7 +527,20 @@ function GroupInfo() {
                 handleFormClose={() => setShowMemberForm(false)}
                 groupName={group.name}
                 groupId={group.id}
+                allowNewGamlerInvite
             />
+
+            <Modal
+                show={showChangePreferences}
+                onHide={() => { setShowChangePreferences(false); fetchGroupInfo(); }}
+            >
+                <Modal.Header closeButton>
+                    <Modal.Title>Change Preferences</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <MemberGameSelections leaderboardText={leaderboardText} bare />
+                </Modal.Body>
+            </Modal>
         </Container>
     );
 }
