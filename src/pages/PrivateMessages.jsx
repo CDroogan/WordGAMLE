@@ -5,7 +5,7 @@ import Axios from 'axios';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { FaArrowLeft, FaTimes } from 'react-icons/fa';
+import { FaArrowLeft, FaTimes, FaPlus } from 'react-icons/fa';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -18,6 +18,47 @@ const formatLastDate = (utcString) => dayjs.utc(utcString).tz(viewerTimezone).fo
 // mockup exactly, including for a group DM with 3+ people.
 const participantLabel = (p) => `${p.first_name} ${p.last_name} (${p.username})`;
 const displayName = (participants) => participants.map(participantLabel).join(', ');
+
+const avatarUrlFor = (baseURL, avatar) => (avatar ? `${baseURL}/user/uploads/${avatar}` : `${baseURL}/user/uploads/default_avatar.png`);
+
+// Instagram-style overlapping avatars for a group conversation - shows
+// up to 3 actual photos, with a "+N" circle for anyone beyond that
+// rather than letting the stack grow unbounded.
+function StackedAvatars({ participants, baseURL, size = 32 }) {
+  const shown = participants.slice(0, 3);
+  const extra = participants.length - shown.length;
+  const overlap = size * 0.4;
+
+  return (
+    <div className="d-flex align-items-center flex-shrink-0" style={{ width: size + (shown.length - 1 + (extra > 0 ? 1 : 0)) * (size - overlap) }}>
+      {shown.map((p, idx) => (
+        <img
+          key={p.id}
+          src={avatarUrlFor(baseURL, p.avatar)}
+          alt=""
+          className="rounded-circle"
+          style={{
+            width: size,
+            height: size,
+            objectFit: 'cover',
+            border: '2px solid #fff',
+            marginLeft: idx === 0 ? 0 : -overlap,
+            position: 'relative',
+            zIndex: shown.length - idx,
+          }}
+        />
+      ))}
+      {extra > 0 && (
+        <div
+          className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
+          style={{ width: size, height: size, fontSize: size * 0.35, marginLeft: -overlap, border: '2px solid #fff' }}
+        >
+          +{extra}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Membership is fixed once a conversation starts (no adding/removing
 // people later), so "does a conversation with exactly these people
@@ -33,18 +74,15 @@ function findExistingConversationId(conversations, otherParticipantIds) {
   return match ? match.conversation_id : null;
 }
 
-function NewMessageModal({ show, onHide, baseURL, userId, onStart }) {
+// Shared by the "New Message" modal and the "add more people" control
+// on a not-yet-started thread - picking a result adds them as a
+// removable chip rather than acting immediately, letting a Gamler build
+// up a group DM's membership before committing. Chips show just the
+// GamleName (not the full name) to save space - the Gamler already saw
+// the full name in the results list before picking them.
+function RecipientPicker({ baseURL, userId, selected, onChange, placeholder }) {
   const [searchInput, setSearchInput] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [selected, setSelected] = useState([]);
-
-  useEffect(() => {
-    if (!show) {
-      setSearchInput('');
-      setSearchResults([]);
-      setSelected([]);
-    }
-  }, [show]);
 
   useEffect(() => {
     if (searchInput.trim() === '') {
@@ -66,14 +104,60 @@ function NewMessageModal({ show, onHide, baseURL, userId, onStart }) {
 
   const addRecipient = (user) => {
     if (selected.some((s) => s.id === user.id)) return;
-    setSelected((prev) => [...prev, user]);
+    onChange([...selected, user]);
     setSearchInput('');
     setSearchResults([]);
   };
 
   const removeRecipient = (id) => {
-    setSelected((prev) => prev.filter((s) => s.id !== id));
+    onChange(selected.filter((s) => s.id !== id));
   };
+
+  return (
+    <div>
+      {selected.length > 0 && (
+        <div className="mb-2 d-flex flex-wrap gap-2">
+          {selected.map((s) => (
+            <Badge key={s.id} bg="secondary" className="d-flex align-items-center gap-1 p-2">
+              {s.username}
+              <FaTimes style={{ cursor: 'pointer' }} onClick={() => removeRecipient(s.id)} />
+            </Badge>
+          ))}
+        </div>
+      )}
+      <Form.Control
+        type="text"
+        placeholder={placeholder}
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+      />
+      {searchInput.trim() !== '' && (
+        <ListGroup className="mt-2">
+          {searchResults.length === 0 ? (
+            <ListGroup.Item className="text-muted">No Gamlers found</ListGroup.Item>
+          ) : (
+            searchResults
+              .filter((u) => !selected.some((s) => s.id === u.id))
+              .map((user) => (
+                <ListGroup.Item key={user.id} action onClick={() => addRecipient(user)}>
+                  {user.first_name} {user.last_name} ({user.username})
+                </ListGroup.Item>
+              ))
+          )}
+        </ListGroup>
+      )}
+    </div>
+  );
+}
+
+function NewMessageModal({ show, onHide, baseURL, userId, onStart }) {
+  const [selected, setSelected] = useState([]);
+
+  useEffect(() => {
+    if (!show) {
+      setSelected([]);
+    }
+  }, [show]);
 
   return (
     <Modal show={show} onHide={onHide} centered>
@@ -81,37 +165,13 @@ function NewMessageModal({ show, onHide, baseURL, userId, onStart }) {
         <Modal.Title>New Message</Modal.Title>
       </Modal.Header>
       <Modal.Body>
-        {selected.length > 0 && (
-          <div className="mb-2 d-flex flex-wrap gap-2">
-            {selected.map((s) => (
-              <Badge key={s.id} bg="secondary" className="d-flex align-items-center gap-1 p-2">
-                {s.first_name} {s.last_name}
-                <FaTimes style={{ cursor: 'pointer' }} onClick={() => removeRecipient(s.id)} />
-              </Badge>
-            ))}
-          </div>
-        )}
-        <Form.Control
-          type="text"
+        <RecipientPicker
+          baseURL={baseURL}
+          userId={userId}
+          selected={selected}
+          onChange={setSelected}
           placeholder="Search Gamlers to add..."
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
         />
-        {searchInput.trim() !== '' && (
-          <ListGroup className="mt-2">
-            {searchResults.length === 0 ? (
-              <ListGroup.Item className="text-muted">No Gamlers found</ListGroup.Item>
-            ) : (
-              searchResults
-                .filter((u) => !selected.some((s) => s.id === u.id))
-                .map((user) => (
-                  <ListGroup.Item key={user.id} action onClick={() => addRecipient(user)}>
-                    {user.first_name} {user.last_name} ({user.username})
-                  </ListGroup.Item>
-                ))
-            )}
-          </ListGroup>
-        )}
       </Modal.Body>
       <Modal.Footer>
         <Button variant="secondary" onClick={onHide}>Cancel</Button>
@@ -123,18 +183,52 @@ function NewMessageModal({ show, onHide, baseURL, userId, onStart }) {
   );
 }
 
+// Only ever opened on a thread that hasn't had its first message sent
+// yet (membership locks in at that point) - seeded with whoever's
+// already picked, so adding more is additive, not a restart.
+function AddRecipientsModal({ show, onHide, baseURL, userId, initialSelected, onSave }) {
+  const [selected, setSelected] = useState(initialSelected);
+
+  useEffect(() => {
+    if (show) setSelected(initialSelected);
+  }, [show, initialSelected]);
+
+  return (
+    <Modal show={show} onHide={onHide} centered>
+      <Modal.Header closeButton>
+        <Modal.Title>Add to Conversation</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        <RecipientPicker
+          baseURL={baseURL}
+          userId={userId}
+          selected={selected}
+          onChange={setSelected}
+          placeholder="Search Gamlers to add..."
+        />
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onHide}>Cancel</Button>
+        <Button variant="primary" onClick={() => { onSave(selected); onHide(); }}>Done</Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
 function PrivateMessages() {
   const baseURL = import.meta.env.VITE_BASE_URL;
   const userId = JSON.parse(localStorage.getItem('auth'))?.id;
   const location = useLocation();
 
   const [conversations, setConversations] = useState([]);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+  const [conversationSearch, setConversationSearch] = useState('');
   const [showNewMessage, setShowNewMessage] = useState(false);
+  const [showAddRecipients, setShowAddRecipients] = useState(false);
   // thread.conversationId is null for a brand-new conversation that
   // hasn't had its first message sent yet - nothing is persisted until
   // that first send, same as the mockup's "never messaged before" case.
+  // Membership can still be edited at this point (see the "+" button
+  // below); once conversationId is set, it's fixed.
   const [thread, setThread] = useState(null);
   const [draftText, setDraftText] = useState('');
   const [sending, setSending] = useState(false);
@@ -160,8 +254,6 @@ function PrivateMessages() {
       const res = await Axios.get(`${baseURL}/messages/get-conversation.php`, { params: { user_id: userId, conversation_id: conversationId } });
       if (res.data.status === 'success') {
         setThread({ conversationId: res.data.conversation_id, participants: res.data.participants, messages: res.data.messages });
-        setSearchInput('');
-        setSearchResults([]);
         await Axios.post(`${baseURL}/messages/mark-conversation-seen.php`, { user_id: userId, conversation_id: conversationId });
         fetchConversations();
       }
@@ -186,26 +278,6 @@ function PrivateMessages() {
     bottomRef.current?.scrollIntoView({ block: 'nearest' });
   }, [thread?.messages]);
 
-  const runSearch = useCallback(async (query) => {
-    if (query.trim() === '') {
-      setSearchResults([]);
-      return;
-    }
-    try {
-      const res = await Axios.get(`${baseURL}/messages/search-users.php`, { params: { user_id: userId, q: query.trim() } });
-      if (res.data.status === 'success') {
-        setSearchResults(res.data.users || []);
-      }
-    } catch (err) {
-      console.error('Error searching Gamlers:', err);
-    }
-  }, [baseURL, userId]);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => runSearch(searchInput), 300);
-    return () => clearTimeout(timeout);
-  }, [searchInput, runSearch]);
-
   // Opens a thread with these other-participants, continuing an existing
   // conversation with that exact membership if one's already in the
   // list (so history isn't lost), otherwise a "pending" one with no
@@ -217,13 +289,24 @@ function PrivateMessages() {
       return;
     }
     setThread({ conversationId: null, participants, messages: [] });
-    setSearchInput('');
-    setSearchResults([]);
   };
 
   const handleStartFromModal = (selected) => {
     setShowNewMessage(false);
     openOrStartThread(selected);
+  };
+
+  // Adding people to a still-pending thread can also land on an already-
+  // existing conversation (if the resulting membership happens to match
+  // one), same reasoning as starting fresh - reuse its real history
+  // instead of sitting in an empty pending thread.
+  const handleSaveAddedRecipients = (newParticipants) => {
+    const existingId = findExistingConversationId(conversations, newParticipants.map((p) => p.id));
+    if (existingId) {
+      openExistingConversation(existingId);
+      return;
+    }
+    setThread((prev) => ({ ...prev, participants: newParticipants }));
   };
 
   const handleSend = async () => {
@@ -251,12 +334,18 @@ function PrivateMessages() {
     }
   };
 
+  const handleComposerKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   const backToList = () => {
     setThread(null);
     setDraftText('');
+    setConversationSearch('');
   };
-
-  const avatarUrl = (avatar) => (avatar ? `${baseURL}/user/uploads/${avatar}` : `${baseURL}/user/uploads/default_avatar.png`);
 
   if (thread) {
     const isGroup = thread.participants.length > 1;
@@ -268,8 +357,20 @@ function PrivateMessages() {
               <Button variant="link" className="p-0 me-2 text-dark" onClick={backToList}>
                 <FaArrowLeft size={18} />
               </Button>
-              <img src={avatarUrl(thread.participants[0]?.avatar)} alt="" className="rounded-circle me-2" style={{ width: '36px', height: '36px', objectFit: 'cover' }} />
-              <div className="fw-bold">{displayName(thread.participants)}</div>
+              <StackedAvatars participants={thread.participants} baseURL={baseURL} size={36} />
+              <div className="fw-bold ms-2 flex-grow-1">{displayName(thread.participants)}</div>
+              {!thread.conversationId && (
+                <Button
+                  variant="outline-secondary"
+                  size="sm"
+                  className="rounded-circle d-flex align-items-center justify-content-center p-0 ms-2 flex-shrink-0"
+                  style={{ width: '28px', height: '28px' }}
+                  title="Add someone to this conversation"
+                  onClick={() => setShowAddRecipients(true)}
+                >
+                  <FaPlus size={12} />
+                </Button>
+              )}
             </div>
 
             <div
@@ -312,22 +413,41 @@ function PrivateMessages() {
 
             <Form
               onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-              className="d-flex gap-2"
+              className="d-flex gap-2 align-items-end"
             >
               <Form.Control
-                type="text"
+                as="textarea"
+                rows={3}
                 placeholder={`Send ${thread.participants.map((p) => p.first_name).join(', ')} a message...`}
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
+                onKeyDown={handleComposerKeyDown}
                 disabled={sending}
               />
               <Button type="submit" variant="primary" disabled={sending || !draftText.trim()}>Send</Button>
             </Form>
           </Col>
         </Row>
+
+        <AddRecipientsModal
+          show={showAddRecipients}
+          onHide={() => setShowAddRecipients(false)}
+          baseURL={baseURL}
+          userId={userId}
+          initialSelected={thread.participants}
+          onSave={handleSaveAddedRecipients}
+        />
       </Container>
     );
   }
+
+  const filteredConversations = conversationSearch.trim() === ''
+    ? conversations
+    : conversations.filter((c) =>
+        c.participants.some((p) =>
+          `${p.first_name} ${p.last_name} ${p.username}`.toLowerCase().includes(conversationSearch.trim().toLowerCase())
+        )
+      );
 
   return (
     <Container>
@@ -340,46 +460,34 @@ function PrivateMessages() {
 
           <Form.Control
             type="text"
-            placeholder="Search"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search existing messages..."
+            value={conversationSearch}
+            onChange={(e) => setConversationSearch(e.target.value)}
             className="mb-3"
           />
 
-          {searchInput.trim() !== '' ? (
-            <ListGroup>
-              {searchResults.length === 0 ? (
-                <ListGroup.Item className="text-muted">No Gamlers found</ListGroup.Item>
-              ) : (
-                searchResults.map((user) => (
-                  <ListGroup.Item key={user.id} action onClick={() => openOrStartThread([user])} className="d-flex align-items-center">
-                    <img src={avatarUrl(user.avatar)} alt="" className="rounded-circle me-2 flex-shrink-0" style={{ width: '32px', height: '32px', objectFit: 'cover' }} />
-                    <div>{user.first_name} {user.last_name} ({user.username})</div>
-                  </ListGroup.Item>
-                ))
-              )}
-            </ListGroup>
-          ) : (
-            <ListGroup>
-              {conversations.length === 0 ? (
-                <ListGroup.Item className="text-muted">No conversations yet - search above to message a Gamler!</ListGroup.Item>
-              ) : (
-                conversations.map((c) => (
-                  <ListGroup.Item key={c.conversation_id} action onClick={() => openExistingConversation(c.conversation_id)} className="d-flex align-items-center">
-                    <img src={avatarUrl(c.participants[0]?.avatar)} alt="" className="rounded-circle me-2 flex-shrink-0" style={{ width: '32px', height: '32px', objectFit: 'cover' }} />
-                    <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                      <div className={c.unseen_count > 0 ? 'fw-bold' : ''}>
-                        {displayName(c.participants)}
-                      </div>
+          <h6 className="text-muted mb-2">Your conversations</h6>
+          <ListGroup>
+            {filteredConversations.length === 0 ? (
+              <ListGroup.Item className="text-muted">
+                {conversations.length === 0 ? 'No conversations yet - use New Message to start one!' : 'No matching conversations'}
+              </ListGroup.Item>
+            ) : (
+              filteredConversations.map((c) => (
+                <ListGroup.Item key={c.conversation_id} action onClick={() => openExistingConversation(c.conversation_id)} className="d-flex align-items-center">
+                  <StackedAvatars participants={c.participants} baseURL={baseURL} size={32} />
+                  <div className="flex-grow-1 ms-2" style={{ minWidth: 0 }}>
+                    <div className={c.unseen_count > 0 ? 'fw-bold' : ''}>
+                      {displayName(c.participants)}
                     </div>
-                    <div className="text-muted ms-2" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                      {formatLastDate(c.last_message_at)}
-                    </div>
-                  </ListGroup.Item>
-                ))
-              )}
-            </ListGroup>
-          )}
+                  </div>
+                  <div className="text-muted ms-2" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                    {formatLastDate(c.last_message_at)}
+                  </div>
+                </ListGroup.Item>
+              ))
+            )}
+          </ListGroup>
         </Col>
       </Row>
 
