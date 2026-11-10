@@ -90,7 +90,9 @@ const GroupInvites = () => {
         request_id: request.id,
       });
       setFriendRequests((prev) => prev.map((r) => (r.id === request.id ? { ...r, seen_at: 'seen' } : r)));
-      navigate('/edit-profile');
+      // Pending GamleFriend Requests now lives on the GamleFriends page
+      // itself, not the Profile page.
+      navigate('/gamle-friends');
     } catch (error) {
       console.error('Error marking friend request seen:', error);
     }
@@ -332,6 +334,29 @@ useEffect(() => {
     }
   };
 
+  // A member added a new game to their Leaderboard preferences within
+  // this group - lands on the Group Info page (where members/preferences
+  // are shown), not the group's main page like other "group admin"
+  // notifications sharing the same 'group' read-state bucket.
+  const handleClickGroupInfo = async (e, groupId, game, userId, msgId) => {
+    e.preventDefault();
+    setShowDropdown(false);
+
+    try {
+      await axios.post(`${baseURL}/groups/update-seen-ids.php`, {
+        group_id: groupId,
+        msg_from: 'group',
+        game_name: game,
+        user_id: userId,
+      });
+
+      await fetchGroupMessages();
+      navigate(`/group-info/${groupId}?msg_id=${msgId}`);
+    } catch (error) {
+      console.error("Axios error:", error);
+    }
+  };
+
   // A message posted to the group's general/leaderboard chat (as opposed
   // to a specific game's chat) - lands on the group's stats/leaderboard
   // page, where that chat lives, rather than a specific game's page.
@@ -375,10 +400,9 @@ useEffect(() => {
     }
   };
 
-  // "Group deleted" and "you were removed from the group" both mean the
-  // group's own page is no longer somewhere this user can (or should) land -
-  // for a deleted group it's gone entirely, and for a removed member they're
-  // no longer part of it. Send them home instead.
+  // "You were removed from the group" means the group's own page is no
+  // longer somewhere this user can (or should) land - they're no longer
+  // part of it. Send them home instead.
   const handleClickHome = async (e, groupId, game, userId) => {
     e.preventDefault();
     setShowDropdown(false);
@@ -393,6 +417,28 @@ useEffect(() => {
 
       await fetchGroupMessages();
       navigate('/');
+    } catch (error) {
+      console.error("Axios error:", error);
+    }
+  };
+
+  // "Group deleted" - the group's own page is gone entirely, so this
+  // lands on the WordGAMLE Groups list instead of that group's page (or
+  // Home, like "you were removed" uses).
+  const handleClickGroupDeleted = async (e, groupId, game, userId) => {
+    e.preventDefault();
+    setShowDropdown(false);
+
+    try {
+      await axios.post(`${baseURL}/groups/update-seen-ids.php`, {
+        group_id: groupId,
+        msg_from: 'group',
+        game_name: game,
+        user_id: userId,
+      });
+
+      await fetchGroupMessages();
+      navigate('/groups');
     } catch (error) {
       console.error("Axios error:", error);
     }
@@ -516,6 +562,87 @@ const handleClick = async (
 
     navigate(url);
 
+  } catch (error) {
+    console.error("Axios error:", error);
+  }
+};
+
+// Cumulative Period (Week/Month/Year) Winner Announcement - lands on the
+// same page as the daily Game Period Winner (its Weekly/Monthly/Yearly
+// sections, not a specific day), so this deliberately does NOT reuse
+// handleClick: that one passes msgReportDate/msgPeriod, which would
+// instead scroll the viewer down to that single day in the Daily
+// section. Week and Month already default to "most recently complete",
+// which is exactly the period this notification refers to - no extra
+// param needed. Year is the one exception: it defaults to the CURRENT
+// (in-progress) year, so msgYearOf is passed to override that, letting
+// the just-completed year's data load instead.
+const handleClickPeriodWinner = async (e, groupId, game, userId, msgId, msgFrom, reportDate) => {
+  e.preventDefault();
+  setShowDropdown(false);
+
+  try {
+    await axios.post(`${baseURL}/groups/update-seen-ids.php`, {
+      group_id: groupId,
+      msg_from: 'game',
+      game_name: game,
+      user_id: userId,
+    });
+
+    await fetchGroupMessages();
+
+    let url = `/group/${groupId}/stats/${game}?msg_id=${msgId}&msg_from=${msgFrom}`;
+    if (msgFrom === 'period_winner_year' && reportDate) {
+      url += `&msgYearOf=${reportDate.slice(0, 4)}`;
+    }
+    navigate(url);
+  } catch (error) {
+    console.error("Axios error:", error);
+  }
+};
+
+// "Award" notifications (Deuces, One Hit Wordler, One Hit Phrazler, and
+// anything added later under the same convention) can reach a Gamler
+// across EVERY group they share with the winner for that game, not just
+// one - so where this click should land has to be worked out for THIS
+// viewer's own groups, not from a single group_id baked into the
+// message row (see groups/get-landing-group.php for the full reasoning).
+const AWARD_MSG_FROM_TYPES = ['deuces_award', 'one_hit_wordler', 'one_hit_phrazler'];
+const PERIOD_WINNER_MSG_FROM_TYPES = ['period_winner_week', 'period_winner_month', 'period_winner_year'];
+
+const PERSONAL_STATS_ROUTE = {
+  wordle: '/wordlestats',
+  phrazle: '/phrazlestats',
+};
+
+const handleClickAward = async (e, groupId, game, userId, msgId, msgFrom, winnerId) => {
+  e.preventDefault();
+  setShowDropdown(false);
+
+  try {
+    // Marks the whole notification thread (every row sharing this
+    // group_id + game_name) seen, exactly like every other click handler
+    // here - unrelated to which page this particular viewer ends up on.
+    await axios.post(`${baseURL}/groups/update-seen-ids.php`, {
+      group_id: groupId,
+      game_name: game,
+      user_id: userId,
+    });
+    await fetchGroupMessages();
+
+    // winner_id restricts the landing group to ones actually shared with
+    // the winner (see get-landing-group.php) - omitted when the viewer
+    // IS the winner, since every one of their own groups already
+    // qualifies by definition.
+    const res = await axios.get(`${baseURL}/groups/get-landing-group.php`, {
+      params: { user_id: userId, game, winner_id: winnerId || undefined },
+    });
+
+    if (res.data.destination === 'group' && res.data.group_id) {
+      navigate(`/group/${res.data.group_id}/stats/${game}?msg_id=${msgId}&msg_from=${msgFrom}`);
+    } else {
+      navigate(PERSONAL_STATS_ROUTE[game] || '/');
+    }
   } catch (error) {
     console.error("Axios error:", error);
   }
@@ -753,13 +880,15 @@ const handleClick = async (
                 >
                   <div className="msg-row">
                     <div className="msg-left">
+                      <div className="fw-bold mb-1">Are your ears ringing??</div>
+                      <strong>{sender.username}</strong>{' '}
                       <img
                         src={sender.avatar ? `${baseURL}/user/uploads/${sender.avatar}` : `${baseURL}/user/uploads/default_avatar.png`}
                         alt=""
                         className="rounded-circle me-2"
                         style={{ width: '24px', height: '24px', objectFit: 'cover', verticalAlign: 'middle' }}
                       />
-                      <strong>{sender.username}</strong> sent you a private message.
+                      sent you a Private Message.
                       <div className="time-ago">{timeAgo(conversation.last_message_at, true)}</div>
                     </div>
                     {isUnread && <span className="unread-dot"></span>}
@@ -813,13 +942,15 @@ const handleClick = async (
                 >
                   <div className="msg-row">
                     <div className="msg-left">
+                      <div className="fw-bold mb-1">Are your ears ringing??</div>
+                      <strong>{mention.mentioning_username}</strong>{' '}
                       <img
                         src={mention.mentioning_avatar ? `${baseURL}/user/uploads/${mention.mentioning_avatar}` : `${baseURL}/user/uploads/default_avatar.png`}
                         alt=""
                         className="rounded-circle me-2"
                         style={{ width: '24px', height: '24px', objectFit: 'cover', verticalAlign: 'middle' }}
                       />
-                      <strong>{mention.mentioning_username}</strong> mentioned you in {mention.comment_id ? 'a comment' : 'a post'} in the GameFeed.
+                      mentioned you in a Gamefeed {mention.comment_id ? 'comment' : 'post'}!
                       <div className="time-ago">{timeAgo(mention.created_at, true)}</div>
                     </div>
                     {isUnread && <span className="unread-dot"></span>}
@@ -859,25 +990,59 @@ const handleClick = async (
                 processedMessage = processedMessage.replace(/\bWINS\b/g, "WIN");
               }
 
-              // Deuces Award: the winner's own view gets different wording
-              // than everyone else's, the same way the name above becomes
-              // "You" only for them.
+              // Deuces Award: the winner's own view uses genuinely
+              // different wording (not just a name swap) than everyone
+              // else's for the two text lines, so those are rebuilt
+              // rather than patched - re-using the same two <img> tags
+              // already embedded in the stored message (the winner's
+              // small avatar next to their name, and the deuces-award.png
+              // banner below), unchanged either way - just moving the
+              // avatar up next to "You" and keeping the banner at the end.
               if (msg.msg_from === "deuces_award" && processedMessage.includes("<strong>You</strong>")) {
-                processedMessage = processedMessage.replace(
-                  "Two 2s Today!",
-                  "Great Phrazle day, whoop!!"
-                );
+                const imgTags = msg.message.match(/<img[^>]*>/g) || [];
+                const [avatarImg, bannerImg] = imgTags;
+                processedMessage =
+                  `<strong>DEUCES AWARD – Two 2s for You${avatarImg || ''}!</strong><br>Great Phrazle day, whoop!` +
+                  (bannerImg ? `<br>${bannerImg}` : '');
+              }
+
+              // One Hit Wordler Award: same "rebuild the whole message for
+              // the winner's own view" approach as Deuces Award above.
+              if (msg.msg_from === "one_hit_wordler" && processedMessage.includes("<strong>You</strong>")) {
+                const imgTags = msg.message.match(/<img[^>]*>/g) || [];
+                const [avatarImg, bannerImg] = imgTags;
+                processedMessage =
+                  `<strong>One Hit Wordler AWARD for You${avatarImg || ''}!</strong><br>You're a Wordle Wiz!  Well played!` +
+                  (bannerImg ? `<br>${bannerImg}` : '');
+              }
+
+              // One Hit Phrazler Award: same approach as the other two
+              // Award types above.
+              if (msg.msg_from === "one_hit_phrazler" && processedMessage.includes("<strong>You</strong>")) {
+                const imgTags = msg.message.match(/<img[^>]*>/g) || [];
+                const [avatarImg, bannerImg] = imgTags;
+                processedMessage =
+                  `<strong>One Hit Phrazler AWARD for You${avatarImg || ''}!</strong><br>You're a Phrazle Phenom!  Well played!` +
+                  (bannerImg ? `<br>${bannerImg}` : '');
               }
 
               return (
                 <Link
                   onClick={(e) =>
-                    (msg.msg_from === "group_deleted" || msg.msg_from === "member_removed")
+                    msg.msg_from === "group_deleted"
+                      ? handleClickGroupDeleted(e, msg.group_id, msg.game_name, userId)
+                      : msg.msg_from === "member_removed"
                       ? handleClickHome(e, msg.group_id, msg.game_name, userId)
                       : msg.msg_from === "invite"
                       ? handleClickInvite(e, msg.group_id, userId)
-                      : msg.msg_from === "group"
+                      : (msg.msg_from === "group" || msg.msg_from === "scoring_method")
                       ? handleClickGroup(e, msg.group_id, msg.game_name, userId, msg.msg_id, msg.msg_from, msg.report_date, msg.period )
+                      : (msg.msg_from === "game_preference" || msg.msg_from === "member_removed_notice")
+                      ? handleClickGroupInfo(e, msg.group_id, msg.game_name, userId, msg.msg_id)
+                      : PERIOD_WINNER_MSG_FROM_TYPES.includes(msg.msg_from)
+                      ? handleClickPeriodWinner(e, msg.group_id, msg.game_name, userId, msg.msg_id, msg.msg_from, msg.report_date)
+                      : AWARD_MSG_FROM_TYPES.includes(msg.msg_from)
+                      ? handleClickAward(e, msg.group_id, msg.game_name, userId, msg.msg_id, msg.msg_from, msg.winner_id)
                       : msg.game_name === "general_chat"
                       ? handleClickGeneralChat(e, msg.group_id, userId, msg.msg_id)
                       : handleClick(e, msg.group_id, msg.game_name, userId, msg.msg_id, msg.msg_from, msg.report_date, msg.period )
