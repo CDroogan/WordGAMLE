@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import Header from './Header/Headerbar';
 import CasaGate from './CasaGate';
@@ -25,6 +25,22 @@ const Layout = ({ children }) => {
   // Computed synchronously (not via useEffect) so an already-unlocked
   // returning Gamler never sees a flash of the gate before this settles.
   const [unlocked, setUnlocked] = useState(isAlreadyUnlocked);
+
+  // isAlreadyUnlocked() was only ever read once, at Layout's very first
+  // mount - typically while still sitting on /login, before a successful
+  // login has set localStorage's 'auth' key, so hasAccount was false at
+  // that moment and never gets rechecked. Logging in then navigates away
+  // from /login (an always-unlocked route) to a normal page, which re-ran
+  // showGate's check against that same stale `unlocked = false` and put
+  // the Casa gate right back up in front of a freshly logged-in Gamler.
+  // Re-checking on every route change (not just mount) catches that
+  // transition without needing Loginform.jsx to know anything about this
+  // gate at all.
+  useEffect(() => {
+    if (!unlocked && isAlreadyUnlocked()) {
+      setUnlocked(true);
+    }
+  }, [location.pathname]);
 
   const showGate = SITE_PASSWORD_ENABLED && !unlocked && !ALWAYS_UNLOCKED_ROUTES.includes(location.pathname);
 
