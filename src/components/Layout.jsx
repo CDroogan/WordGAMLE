@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import Header from './Header/Headerbar';
 import CasaGate from './CasaGate';
@@ -11,7 +11,6 @@ import { SITE_PASSWORD_ENABLED } from '../config/sitePassword';
 // rather than making them also know Casa (the invite message itself now
 // notes the site is password-protected, in case it's forwarded without
 // the link).
-
 const ALWAYS_UNLOCKED_ROUTES = ['/login', '/register'];
 
 const isAlreadyUnlocked = () => {
